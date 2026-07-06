@@ -7,7 +7,7 @@ from frappe.query_builder import DocType
 from frappe.query_builder.functions import Avg, Count, Function
 from pypika import Case
 
-from helpdesk.utils import agent_only, is_frappe_version
+from helpdesk.utils import agent_only, get_agents_team, is_admin, is_frappe_version
 
 HD_TICKET = "HD Ticket"
 
@@ -31,17 +31,36 @@ def get_dashboard_data(
     user = frappe.session.user
     is_manager = "Agent Manager" in frappe.get_roles(user)
 
-    if not is_manager and (filters.get("agent") != user or filters.get("team")):
-        frappe.throw(
-            _("You are not allowed to view this dashboard data."),
-            frappe.PermissionError,
-        )
-        return
+    if not filters:
+        filters = {}
 
-    from_date = filters.get("from_date") if filters else None
-    to_date = filters.get("to_date") if filters else None
-    team = filters.get("team") if filters else None
-    agent = filters.get("agent") if filters else None
+    user_teams = get_agents_team() or []
+    bypass = any(t.get("ignore_restrictions") for t in user_teams)
+    team_names = [t.get("team_name") for t in user_teams]
+
+    if not bypass and not is_admin(user):
+        if is_manager:
+            requested_team = filters.get("team")
+            if requested_team and requested_team not in team_names:
+                frappe.throw(
+                    _("You can only view dashboard data for teams you belong to."),
+                    frappe.PermissionError,
+                )
+                return
+            if not requested_team and team_names:
+                filters["team"] = team_names
+        else:
+            if filters.get("agent") != user or filters.get("team"):
+                frappe.throw(
+                    _("You are not allowed to view this dashboard data."),
+                    frappe.PermissionError,
+                )
+                return
+
+    from_date = filters.get("from_date")
+    to_date = filters.get("to_date")
+    team = filters.get("team")
+    agent = filters.get("agent")
 
     if agent == "@me":
         agent = frappe.session.user
@@ -104,7 +123,10 @@ class HelpdeskDashboard:
     def _get_conditions(self):
         conds = []
         if self.team:
-            conds.append(self.ticket.agent_group == self.team)
+            if isinstance(self.team, list):
+                conds.append(self.ticket.agent_group.isin(self.team))
+            else:
+                conds.append(self.ticket.agent_group == self.team)
         if self.agent:
             # Pass args to Function(...) directly. ParameterizedFunction is not callable.
             conds.append(
@@ -407,13 +429,16 @@ class HelpdeskDashboard:
 
 
 def get_master_dashboard_data(
-    from_date: str, to_date: str, team: str = None, agent: str = None
+    from_date: str, to_date: str, team=None, agent: str = None
 ) -> list[dict[str, any]]:
     filters = {
         "creation": ["between", [from_date, to_date]],
     }
     if team:
-        filters["agent_group"] = team
+        if isinstance(team, list):
+            filters["agent_group"] = ["in", team]
+        else:
+            filters["agent_group"] = team
     if agent:
         filters["_assign"] = ["like", f"%{agent}%"]
     team_data = get_team_chart_data(from_date, to_date, filters)
