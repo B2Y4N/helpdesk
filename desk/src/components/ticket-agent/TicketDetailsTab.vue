@@ -26,6 +26,7 @@
               :doctype="field.doctype"
               :modelValue="field.value"
               :required="field.required"
+              :filters="getLinkFilters(field.fieldname)"
               @update:model-value="
               (val:string) => handleFieldUpdate(field.fieldname, val,true)
             "
@@ -144,6 +145,7 @@ import { Link } from "@/components";
 import { parseField } from "@/composables/formCustomisation";
 import { useNotifyTicketUpdate } from "@/composables/realtime";
 import { useShortcut } from "@/composables/shortcuts";
+import { useAuthStore } from "@/stores/auth";
 import { getMeta } from "@/stores/meta";
 import { useTicketStatusStore } from "@/stores/ticketStatus";
 import {
@@ -169,7 +171,18 @@ const customizations = inject(CustomizationSymbol)!;
 const activities = inject(ActivitiesSymbol)!;
 const recentSimilarTickets = inject(RecentSimilarTicketsSymbol)!;
 const { getFields, getField } = getMeta("HD Ticket");
+const { isManager, isAdmin, userTeams } = useAuthStore();
 const { notifyTicketUpdate } = useNotifyTicketUpdate(ticket.value?.name);
+
+// Limit the Team (agent_group) dropdown to teams the user belongs to.
+// Administrator and Ignore-Restrictions members bypass via the server.
+function getLinkFilters(fieldname: string) {
+  if (fieldname !== "agent_group") return null;
+  if (!isManager) return null;
+  if (isAdmin) return null;
+  const teams = userTeams || [];
+  return { name: ["in", teams] };
+}
 
 const dateFormat = window.date_format;
 const { getStatus, colorMap } = useTicketStatusStore();
