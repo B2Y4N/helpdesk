@@ -145,6 +145,8 @@ import {
   toast,
 } from "frappe-ui";
 import { computed, inject, nextTick, ref, useTemplateRef, watch } from "vue";
+import { storeToRefs } from "pinia";
+import { useAuthStore } from "@/stores/auth";
 
 import LucideSearch from "~icons/lucide/search";
 import MultipleAvatar from "../MultipleAvatar.vue";
@@ -172,6 +174,55 @@ const searchText = ref("");
 const highlightedIndex = ref(0);
 const inputRef = useTemplateRef<HTMLInputElement>("inputRef");
 const triggerRef = useTemplateRef("triggerRef");
+
+// Restrict the agent dropdown to members of teams the current user belongs to.
+// Mirrors the dashboard's agentFilter pattern (Dashboard.vue lines ~362-372):
+//   - Uses createResource + onSuccess to fetch team members
+//   - No role-based bypass — applies to everyone (Administrator with zero
+//     teams falls through to "no filter" naturally)
+// Uses storeToRefs so userTeams is a reactive ref (Pinia destructuring breaks
+// reactivity without it).
+const { userTeams } = storeToRefs(useAuthStore());
+const teamMembersFilter = ref<string[] | null>(null);
+
+const teamMembersResource = createResource({
+  url: "helpdesk.helpdesk.doctype.hd_team.hd_team.get_team_members",
+  onSuccess: (data: string[]) => {
+    teamMembersFilter.value = data;
+  },
+});
+
+async function refreshTeamMembersFilter(teams: string[] | undefined) {
+  if (!teams || teams.length === 0) {
+    teamMembersFilter.value = null;
+    return;
+  }
+  if (teams.length === 1) {
+    teamMembersResource.update({ params: { team: teams[0] } });
+    teamMembersResource.reload();
+    return;
+  }
+  // Multiple teams: fetch each and flatten (dedupe)
+  const results = await Promise.all(
+    teams.map((t) =>
+      call("helpdesk.helpdesk.doctype.hd_team.hd_team.get_team_members", { team: t })
+    )
+  );
+  teamMembersFilter.value = Array.from(new Set(results.flat()));
+}
+
+watch(userTeams, (teams) => refreshTeamMembersFilter(teams), { immediate: true });
+
+function buildAgentFilters(text?: string) {
+  const filters: Record<string, any> = { is_active: true };
+  if (teamMembersFilter.value) {
+    filters.name = ["in", teamMembersFilter.value];
+  }
+  if (text) {
+    filters.agent_name = ["like", `%${text}%`];
+  }
+  return filters;
+}
 
 const popoverIsOpen = ref(false);
 const hasBeenOpened = ref(false);
@@ -224,9 +275,15 @@ watch(popoverIsOpen, (isOpen) => {
 const agentResource = createListResource({
   doctype: "HD Agent",
   fields: ["name", "agent_name", "user_image"],
-  filters: { is_active: true },
+  filters: buildAgentFilters(),
   pageLength: 20,
   auto: true,
+});
+
+// Re-apply filter when team membership resolves
+watch(teamMembersFilter, () => {
+  agentResource.filters = buildAgentFilters(searchText.value);
+  agentResource.reload();
 });
 
 // Fetch current agent separately to guarantee they appear in the list
@@ -243,11 +300,7 @@ const currentAgentResource = currentAgentName
   : null;
 
 const debouncedSearch = useDebounceFn((text: string) => {
-  const filters: Record<string, any> = { is_active: true };
-  if (text) {
-    filters.agent_name = ["like", `%${text}%`];
-  }
-  agentResource.filters = filters;
+  agentResource.filters = buildAgentFilters(text);
   agentResource.reload();
 }, 300);
 
