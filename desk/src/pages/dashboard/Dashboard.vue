@@ -57,6 +57,7 @@
           :placeholder="__('Team')"
           v-model="filters.team"
           :page-length="5"
+          :filters="teamFilter"
           :hide-me="true"
         >
           <template #prefix>
@@ -337,7 +338,6 @@ const parseFilters = (filters: Filters) => {
 
 const numberCards = createResource({
   url: "helpdesk.api.dashboard.get_dashboard_data",
-  cache: ["Analytics", "NumberCards"],
   makeParams: () => ({
     dashboard_type: "number_card",
     filters: parseFilters(filters),
@@ -346,7 +346,6 @@ const numberCards = createResource({
 
 const masterData = createResource({
   url: "helpdesk.api.dashboard.get_dashboard_data",
-  cache: ["Analytics", "MasterCharts"],
   makeParams: () => ({
     dashboard_type: "master",
     filters: parseFilters(filters),
@@ -355,7 +354,6 @@ const masterData = createResource({
 
 const trendData = createResource({
   url: "helpdesk.api.dashboard.get_dashboard_data",
-  cache: ["Analytics", "TrendCharts"],
   makeParams: () => ({
     dashboard_type: "trend",
     filters: parseFilters(filters),
@@ -365,7 +363,6 @@ const trendData = createResource({
 const agentFilter = ref(null);
 const teamMembers = createResource({
   url: "helpdesk.helpdesk.doctype.hd_team.hd_team.get_team_members",
-  cache: ["Analytics", "TeamMembers"],
   params: {
     team: filters.team,
   },
@@ -374,7 +371,14 @@ const teamMembers = createResource({
   },
 });
 
-const { isManager, userId } = useAuthStore();
+const { isManager, isAdmin, userId, userTeams } = useAuthStore();
+
+const teamFilter = computed(() => {
+  if (!isManager) return null;
+  if (isAdmin) return null;
+  const teams = userTeams || [];
+  return { name: ["in", teams] };
+});
 
 const viewMyStats = ref(false);
 const activeTab = useStorage("dashboard_active_tab", "organization");
