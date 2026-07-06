@@ -88,6 +88,35 @@ class HDTicket(Document):
 
     def validate(self):
         self.validate_feedback()
+        self.validate_agent_group_assignment()
+
+    def validate_agent_group_assignment(self):
+        """Restrict team reassignment to teams the current user belongs to."""
+        if self.is_new():
+            return  # don't block ticket creation (assignment rules may set team)
+        if not self.has_value_changed("agent_group"):
+            return  # no team change -> no check
+        if not self.agent_group:
+            return  # clearing the team is allowed
+
+        user = frappe.session.user
+        if user == "Administrator":
+            return
+
+        from helpdesk.utils import is_agent, get_agents_team
+        if not is_agent(user):
+            return  # non-agents handled by standard Frappe perms
+
+        user_teams = get_agents_team() or []
+        if any(t.get("ignore_restrictions") for t in user_teams):
+            return  # bypass
+
+        team_names = [t.get("team_name") for t in user_teams]
+        if self.agent_group not in team_names:
+            frappe.throw(
+                _("You can only assign tickets to teams you belong to."),
+                frappe.PermissionError,
+            )
 
     def before_save(self):
         self.apply_sla()
