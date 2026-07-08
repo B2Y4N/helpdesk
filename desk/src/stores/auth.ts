@@ -31,6 +31,9 @@ export const useAuthStore = defineStore("auth", () => {
   const isManager: ComputedRef<boolean> = computed(
     () => user__.value.is_manager
   );
+  const ignoreTeamRestrictions: ComputedRef<boolean> = computed(
+    () => Boolean(user__.value.ignore_team_restrictions)
+  );
 
   const userId: ComputedRef<string> = computed(() => user__.value.user_id);
   const userImage: ComputedRef<string> = computed(
@@ -44,7 +47,7 @@ export const useAuthStore = defineStore("auth", () => {
   const timezone: ComputedRef<string> = computed(() => user__.value.time_zone);
   const language: ComputedRef<string> = computed(() => user__.value.language);
   const userTeams: ComputedRef<string[]> = computed(
-    () => user__.value.user_teams
+    () => user__.value.user_teams || []
   );
 
   function sessionUser() {
@@ -82,6 +85,7 @@ export const useAuthStore = defineStore("auth", () => {
     isAdmin,
     isAgent,
     isManager,
+    ignoreTeamRestrictions,
     isLoggedIn,
     login,
     reloadUser,

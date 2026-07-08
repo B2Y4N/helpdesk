@@ -40,6 +40,9 @@ def get_user():
     )
     user_team = get_agents_team()
     user_team_names = [team["team_name"] for team in user_team]
+    ignore_team_restrictions = any(
+        team.get("ignore_restrictions") for team in user_team
+    )
 
     return {
         "has_desk_access": has_desk_access,
@@ -54,6 +57,7 @@ def get_user():
         "time_zone": user.time_zone,
         "language": language,
         "user_teams": user_team_names,
+        "ignore_team_restrictions": ignore_team_restrictions,
     }
 
 
