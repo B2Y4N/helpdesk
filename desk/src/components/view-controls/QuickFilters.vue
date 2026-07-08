@@ -12,6 +12,7 @@
       <QuickFilterField
         :filter="filter"
         :value="getValue(filter, list.params?.filters)"
+        :linkFilters="getLinkFilters(filter)"
         @applyQuickFilter="(f, v) => applyQuickFilter(f, v)"
       />
     </div>
@@ -20,14 +21,75 @@
 
 <script setup>
 import { FadedScrollableDiv } from "@/components";
-import { inject } from "vue";
+import { useAuthStore } from "@/stores/auth";
+import { storeToRefs } from "pinia";
+import { call } from "frappe-ui";
+import { computed, inject, ref, watch } from "vue";
 import QuickFilterField from "./QuickFilterField.vue";
 
 const listViewData = inject("listViewData");
 const listViewActions = inject("listViewActions");
 const { list, quickFilters } = listViewData;
 
+const { isAdmin, ignoreTeamRestrictions, userTeams } = storeToRefs(useAuthStore());
+
 const directValueFilterTypes = ["Check", "Select", "Link", "Date", "Datetime"];
+const teamMembersFilter = ref(null);
+
+const canSeeAllTeams = computed(() => {
+  return isAdmin.value || ignoreTeamRestrictions.value;
+});
+
+const visibleTeams = computed(() => {
+  return userTeams.value || [];
+});
+
+const selectedTeam = computed(() => {
+  const filters = list.params?.filters || {};
+  return filters.agent_group || "";
+});
+
+const getTeamMembersMethod =
+  "helpdesk.helpdesk.doctype.hd_team.hd_team.get_team_members";
+let teamMembersRequest = 0;
+
+async function refreshTeamMembersFilter(team) {
+  const request = ++teamMembersRequest;
+  if (canSeeAllTeams.value) {
+    teamMembersFilter.value = null;
+    return;
+  }
+  teamMembersFilter.value = [];
+
+  if (team) {
+    const members = await call(getTeamMembersMethod, { team });
+    if (request === teamMembersRequest) {
+      teamMembersFilter.value = members || [];
+    }
+    return;
+  }
+
+  const teams = visibleTeams.value;
+  if (!teams.length) {
+    teamMembersFilter.value = [];
+    return;
+  }
+
+  const members = await Promise.all(
+    teams.map((teamName) => call(getTeamMembersMethod, { team: teamName }))
+  );
+  if (request === teamMembersRequest) {
+    teamMembersFilter.value = [...new Set(members.flat().filter(Boolean))];
+  }
+}
+
+watch(
+  [selectedTeam, visibleTeams, canSeeAllTeams],
+  ([team]) => {
+    refreshTeamMembersFilter(team);
+  },
+  { immediate: true }
+);
 
 function applyQuickFilter(filter, value) {
   let filters = { ...list.params?.filters };
@@ -42,7 +104,27 @@ function applyQuickFilter(filter, value) {
   } else {
     delete filters[field];
   }
+
+  if (field === "agent_group") {
+    delete filters._assign;
+  }
+
   listViewActions.applyFilters(filters);
+}
+
+function getLinkFilters(filter) {
+  if (canSeeAllTeams.value || filter.type !== "Link") return null;
+
+  if (filter.name === "agent_group" && filter.options === "HD Team") {
+    return { name: ["in", visibleTeams.value] };
+  }
+
+  if (filter.name === "_assign" && filter.options === "HD Agent") {
+    if (teamMembersFilter.value === null) return null;
+    return { name: ["in", teamMembersFilter.value] };
+  }
+
+  return null;
 }
 
 function getDefaultValue(quickFilter) {

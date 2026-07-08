@@ -21,6 +21,7 @@
     :value="props.value"
     :doctype="filter.options"
     :placeholder="filter.label"
+    :filters="linkFilters"
     @change="(data) => updateFilter(filter, data)"
     class="w-36"
   />
@@ -53,6 +54,10 @@ const props = defineProps({
   value: {
     type: [String, Boolean],
     required: true,
+  },
+  linkFilters: {
+    type: Object,
+    default: null,
   },
 });
 
