@@ -43,6 +43,13 @@ from ..hd_notification.utils import clear as clear_notifications
 from ..hd_service_level_agreement.utils import get_sla
 
 
+@frappe.whitelist()
+def log_assignment_activity(ticket: str, action: str):
+    frappe.has_permission("HD Ticket", "read", ticket, throw=True)
+    log_ticket_activity(ticket, action)
+    return {"ok": True}
+
+
 class HDTicket(Document):
     @property
     def default_open_status(self):

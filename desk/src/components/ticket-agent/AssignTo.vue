@@ -144,8 +144,8 @@ import {
   createResource,
   toast,
 } from "frappe-ui";
-import { computed, inject, nextTick, ref, useTemplateRef, watch } from "vue";
 import { storeToRefs } from "pinia";
+import { computed, inject, nextTick, ref, useTemplateRef, watch } from "vue";
 import { useAuthStore } from "@/stores/auth";
 
 import LucideSearch from "~icons/lucide/search";
@@ -175,14 +175,8 @@ const highlightedIndex = ref(0);
 const inputRef = useTemplateRef<HTMLInputElement>("inputRef");
 const triggerRef = useTemplateRef("triggerRef");
 
-// Restrict the agent dropdown to members of teams the current user belongs to.
-// Mirrors the dashboard's agentFilter pattern (Dashboard.vue lines ~362-372):
-//   - Uses createResource + onSuccess to fetch team members
-//   - No role-based bypass — applies to everyone (Administrator with zero
-//     teams falls through to "no filter" naturally)
-// Uses storeToRefs so userTeams is a reactive ref (Pinia destructuring breaks
-// reactivity without it).
-const { userTeams } = storeToRefs(useAuthStore());
+// Restrict the agent dropdown to members of the ticket's currently-selected Team.
+const { isAdmin, ignoreTeamRestrictions } = storeToRefs(useAuthStore());
 const teamMembersFilter = ref<string[] | null>(null);
 
 const teamMembersResource = createResource({
@@ -192,26 +186,24 @@ const teamMembersResource = createResource({
   },
 });
 
-async function refreshTeamMembersFilter(teams: string[] | undefined) {
-  if (!teams || teams.length === 0) {
+function refreshTeamMembersFilter(team: string | null | undefined) {
+  if (isAdmin.value || ignoreTeamRestrictions.value) {
     teamMembersFilter.value = null;
     return;
   }
-  if (teams.length === 1) {
-    teamMembersResource.update({ params: { team: teams[0] } });
-    teamMembersResource.reload();
+  if (!team) {
+    teamMembersFilter.value = [];
     return;
   }
-  // Multiple teams: fetch each and flatten (dedupe)
-  const results = await Promise.all(
-    teams.map((t) =>
-      call("helpdesk.helpdesk.doctype.hd_team.hd_team.get_team_members", { team: t })
-    )
-  );
-  teamMembersFilter.value = Array.from(new Set(results.flat()));
+  teamMembersResource.update({ params: { team } });
+  teamMembersResource.reload();
 }
 
-watch(userTeams, (teams) => refreshTeamMembersFilter(teams), { immediate: true });
+watch(
+  () => ticket.value?.doc?.agent_group,
+  (team) => refreshTeamMembersFilter(team),
+  { immediate: true }
+);
 
 function buildAgentFilters(text?: string) {
   const filters: Record<string, any> = { is_active: true };
@@ -246,7 +238,7 @@ watch(
   { immediate: true, deep: true }
 );
 
-// Watch popover open/close — same pattern as old AssignToBody
+// Watch popover open/close - same pattern as old AssignToBody
 watch(popoverIsOpen, (isOpen) => {
   if (isOpen) {
     // Opening: take snapshot
@@ -339,7 +331,7 @@ const agentOptions = computed<AgentOption[]>(() => {
   return agents;
 });
 
-// Snapshot of selected names at open time — used to pin assigned agents at top
+// Snapshot of selected names at open time - used to pin assigned agents at top
 // without them jumping around as the user toggles selections.
 const pinnedSelectedNames = ref<Set<string>>(new Set());
 
@@ -453,12 +445,9 @@ watch(searchText, () => {
 });
 
 async function logActivity(action: string) {
-  await call("frappe.client.insert", {
-    doc: {
-      doctype: "HD Ticket Activity",
-      ticket: ticket.value?.name,
-      action,
-    },
+  await call("helpdesk.helpdesk.doctype.hd_ticket.hd_ticket.log_assignment_activity", {
+    ticket: ticket.value?.name,
+    action,
   });
 }
 

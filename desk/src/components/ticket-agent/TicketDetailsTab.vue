@@ -171,15 +171,13 @@ const customizations = inject(CustomizationSymbol)!;
 const activities = inject(ActivitiesSymbol)!;
 const recentSimilarTickets = inject(RecentSimilarTicketsSymbol)!;
 const { getFields, getField } = getMeta("HD Ticket");
-const { isManager, isAdmin, userTeams } = useAuthStore();
+const { isAdmin, ignoreTeamRestrictions, userTeams } = useAuthStore();
 const { notifyTicketUpdate } = useNotifyTicketUpdate(ticket.value?.name);
 
 // Limit the Team (agent_group) dropdown to teams the user belongs to.
-// Administrator and Ignore-Restrictions members bypass via the server.
 function getLinkFilters(fieldname: string) {
   if (fieldname !== "agent_group") return null;
-  if (!isManager) return null;
-  if (isAdmin) return null;
+  if (isAdmin || ignoreTeamRestrictions) return null;
   const teams = userTeams || [];
   return { name: ["in", teams] };
 }
